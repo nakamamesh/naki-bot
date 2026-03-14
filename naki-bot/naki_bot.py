@@ -54,7 +54,7 @@ def get_gemini_client():
     return genai.Client(api_key=config.GEMINI_API_KEY)
 
 
-GEMINI_TEXT_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash"]
+GEMINI_TEXT_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
 
 
 def generate_tweet(client: genai.Client) -> str:
@@ -93,7 +93,6 @@ def generate_hashtags(client: genai.Client, tweet: str) -> str:
 def generate_naki_image(client: genai.Client, tweet: str) -> bytes | None:
     """
     Generate an image of Naki using Gemini's native image generation.
-    Uses gemini-2.5-flash-preview-05-20 or similar - free tier supports 500/day.
     """
     scene = random.choice(SCENES)
     prompt = NAKI_MASCOT_IMAGE_PROMPT.format(scene_description=scene)
@@ -101,27 +100,18 @@ def generate_naki_image(client: genai.Client, tweet: str) -> bytes | None:
     full_prompt = f"{prompt}\n\nThis image will accompany a tweet about: {tweet[:100]}"
 
     try:
-        # Gemini 2.5 Flash Image (Nano Banana) - 500 free images/day
         response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
+            model="imagen-3.0-generate-002",
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
-                response_mime_type="image/png",
             ),
         )
     except Exception as e:
-        print(f"Gemini 2.5 Flash Image failed: {e}", file=sys.stderr)
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.1-flash-image-preview",
-                contents=full_prompt,
-            )
-        except Exception as e2:
-            print(f"Image fallback failed: {e2}", file=sys.stderr)
-            return None
+        print(f"Image generation failed: {e}", file=sys.stderr)
+        return None
 
-    # Extract image from response (handle different response structures)
+    # Extract image from response
     parts = getattr(response, "parts", None) or (
         getattr(response.candidates[0].content, "parts", []) if response.candidates else []
     )
