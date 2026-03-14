@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
 Naki AI Mascot Bot - Posts to Twitter/X for NakamaMesh.
-Uses Gemini for tweets, images, hashtags. Posts 3x daily.
+Uses Gemini for tweets and hashtags. Posts 3x daily.
 """
-import io
 import random
 import sys
-from pathlib import Path
 
-from google import genai
-from google.genai import types
+import google.generativeai as genai
+import tweepy
 
 import config
 from naki_prompts import (
-    NAKI_MASCOT_IMAGE_PROMPT,
     TWEET_GENERATION_PROMPT,
     HASHTAG_GENERATION_PROMPT,
 )
@@ -34,94 +31,38 @@ TOPICS = [
     "Phone-to-phone messaging",
 ]
 
-# Scene ideas for Naki images (match tweet themes)
-SCENES = [
-    "Naki floating happily next to a smartphone showing a mesh network diagram",
-    "Naki in a relaxed pose with tiny Bluetooth icons around him",
-    "Naki wearing his straw hat, surrounded by small glowing connection nodes",
-    "Naki in a cozy scene with rain outside a window - representing disaster resilience",
-    "Naki with a friendly wave, small $NAKI token symbols nearby",
-    "Naki in a community scene with diverse people connected by lines",
-    "Naki looking determined with a shield - representing unstoppable communication",
-    "Naki relaxing with his hands behind his head, mesh network pattern in background",
-]
 
-
-def get_gemini_client():
-    """Initialize Gemini client with API key."""
-    if not config.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not set. Add it to .env or environment.")
-    return genai.Client(api_key=config.GEMINI_API_KEY)
-
-
-GEMINI_TEXT_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"]
-
-
-def generate_tweet(client: genai.Client) -> str:
+def generate_tweet() -> str:
     """Generate a tweet using Gemini."""
+    genai.configure(api_key=config.GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
     topic = random.choice(TOPICS)
     prompt = TWEET_GENERATION_PROMPT.format(topic=topic)
-    for model in GEMINI_TEXT_MODELS:
-        try:
-            response = client.models.generate_content(model=model, contents=prompt)
-            text = response.text.strip()
-            break
-        except Exception as e:
-            print(f"{model} failed: {e}", file=sys.stderr)
-            continue
-    else:
-        raise RuntimeError("All Gemini models failed")
-    # Clean up any quotes or extra formatting
-    if text.startswith('"') and text.endswith('"'):
-        text = text[1:-1]
-    return text[:275]  # Leave room for hashtags
-
-
-def generate_hashtags(client: genai.Client, tweet: str) -> str:
-    """Generate hashtags for the tweet."""
-    prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
-    for model in GEMINI_TEXT_MODELS:
-        try:
-            response = client.models.generate_content(model=model, contents=prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"{model} failed: {e}", file=sys.stderr)
-            continue
-    return "#NakamaMesh #DePIN #MeshNetwork"  # Fallback
-
-
-def generate_naki_image(client: genai.Client, tweet: str) -> bytes | None:
-    """
-    Generate an image of Naki using Gemini's native image generation.
-    """
-    scene = random.choice(SCENES)
-    prompt = NAKI_MASCOT_IMAGE_PROMPT.format(scene_description=scene)
-    # Add tweet context for relevance
-    full_prompt = f"{prompt}\n\nThis image will accompany a tweet about: {tweet[:100]}"
-
     try:
-        response = client.models.generate_content(
-            model="imagen-3.0-generate-002",
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"],
-            ),
-        )
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        return text[:275]
     except Exception as e:
-        print(f"Image generation failed: {e}", file=sys.stderr)
-        return None
-
-    # Extract image from response
-    parts = getattr(response, "parts", None) or (
-        getattr(response.candidates[0].content, "parts", []) if response.candidates else []
-    )
-    for part in parts:
-        if getattr(part, "inline_data", None) is not None:
-            return part.inline_data.data
-    return None
+        print(f"Gemini tweet generation failed: {e}", file=sys.stderr)
+        raise RuntimeError(f"Tweet generation failed: {e}")
 
 
-def post_to_twitter(tweet: str, hashtags: str, image_bytes: bytes | None) -> bool:
+def generate_hashtags(tweet: str) -> str:
+    """Generate hashtags for the tweet."""
+    genai.configure(api_key=config.GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        print(f"Hashtag generation failed: {e}", file=sys.stderr)
+        return "#NakamaMesh #DePIN #MeshNetwork #Solana #NAKI"
+
+
+def post_to_twitter(tweet: str, hashtags: str) -> bool:
     """Post tweet to Twitter/X using Tweepy."""
     if not all([
         config.TWITTER_API_KEY,
@@ -129,14 +70,12 @@ def post_to_twitter(tweet: str, hashtags: str, image_bytes: bytes | None) -> boo
         config.TWITTER_ACCESS_TOKEN,
         config.TWITTER_ACCESS_TOKEN_SECRET,
     ]):
-        print("Twitter credentials not configured. Skipping post.", file=sys.stderr)
+        print("Twitter credentials not configured.", file=sys.stderr)
         return False
-
-    import tweepy
 
     full_text = f"{tweet}\n\n{hashtags}"
     if len(full_text) > 280:
-        full_text = f"{tweet}\n{hashtags}"[:280]
+        full_text = full_text[:280]
 
     client = tweepy.Client(
         consumer_key=config.TWITTER_API_KEY,
@@ -144,23 +83,10 @@ def post_to_twitter(tweet: str, hashtags: str, image_bytes: bytes | None) -> boo
         access_token=config.TWITTER_ACCESS_TOKEN,
         access_token_secret=config.TWITTER_ACCESS_TOKEN_SECRET,
     )
-    auth = tweepy.OAuth1UserHandler(
-        config.TWITTER_API_KEY,
-        config.TWITTER_API_SECRET,
-        config.TWITTER_ACCESS_TOKEN,
-        config.TWITTER_ACCESS_TOKEN_SECRET,
-    )
-    api = tweepy.API(auth)
 
     try:
-        if image_bytes:
-            img_file = io.BytesIO(image_bytes)
-            img_file.name = "naki.png"
-            media = api.media_upload(filename="naki.png", file=img_file)
-            response = client.create_tweet(text=full_text, media_ids=[media.media_id])
-        else:
-            response = client.create_tweet(text=full_text)
-        print(f"Posted successfully: {response.data['id']}")
+        response = client.create_tweet(text=full_text)
+        print(f"Posted successfully! Tweet ID: {response.data['id']}")
         return True
     except Exception as e:
         print(f"Twitter post failed: {e}", file=sys.stderr)
@@ -169,22 +95,15 @@ def post_to_twitter(tweet: str, hashtags: str, image_bytes: bytes | None) -> boo
 
 def main():
     """Generate and post one Naki tweet."""
-    print("Naki is thinking...")
-    client = get_gemini_client()
+    print("Naki is thinking... 🦎")
 
-    tweet = generate_tweet(client)
+    tweet = generate_tweet()
     print(f"Tweet: {tweet}")
 
-    hashtags = generate_hashtags(client, tweet)
+    hashtags = generate_hashtags(tweet)
     print(f"Hashtags: {hashtags}")
 
-    image_bytes = generate_naki_image(client, tweet)
-    if image_bytes:
-        print("Image generated!")
-    else:
-        print("No image (continuing without)")
-
-    success = post_to_twitter(tweet, hashtags, image_bytes)
+    success = post_to_twitter(tweet, hashtags)
     sys.exit(0 if success else 1)
 
 
