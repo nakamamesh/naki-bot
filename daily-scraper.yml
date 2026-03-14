@@ -1,0 +1,69 @@
+name: Daily Permit Scraper
+
+on:
+  schedule:
+    # Run every day at 8:00 AM UTC (adjust timezone as needed)
+    - cron: '0 8 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Install Playwright browsers
+      run: |
+        playwright install chromium
+        playwright install-deps chromium
+    
+    - name: Set up environment variables
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        CITY_NAME: ${{ secrets.CITY_NAME }}
+        COUNTY_NAME: ${{ secrets.COUNTY_NAME }}
+        PERMIT_PORTAL_URL: ${{ secrets.PERMIT_PORTAL_URL }}
+        FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+        SIGNUP_LINK: ${{ secrets.SIGNUP_LINK }}
+      run: |
+        echo "$GOOGLE_SHEETS_CREDENTIALS" > credentials.json
+        echo "GOOGLE_SHEET_ID=$GOOGLE_SHEET_ID" >> .env
+        echo "GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY" >> .env
+        echo "RESEND_API_KEY=$RESEND_API_KEY" >> .env
+        echo "CITY_NAME=$CITY_NAME" >> .env
+        echo "COUNTY_NAME=$COUNTY_NAME" >> .env
+        echo "PERMIT_PORTAL_URL=$PERMIT_PORTAL_URL" >> .env
+        echo "FROM_EMAIL=$FROM_EMAIL" >> .env
+        echo "SIGNUP_LINK=$SIGNUP_LINK" >> .env
+    
+    - name: Run scraper
+      run: python main.py
+    
+    - name: Upload logs (if any)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: scraper-logs
+        path: |
+          *.log
+          credentials.json
