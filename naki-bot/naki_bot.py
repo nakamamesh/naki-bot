@@ -6,7 +6,7 @@ Uses Gemini for tweets and hashtags. Posts 3x daily.
 import random
 import sys
 
-import google.generativeai as genai
+from google import genai
 import tweepy
 
 import config
@@ -34,12 +34,14 @@ TOPICS = [
 
 def generate_tweet() -> str:
     """Generate a tweet using Gemini."""
-    genai.configure(api_key=config.GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
     topic = random.choice(TOPICS)
     prompt = TWEET_GENERATION_PROMPT.format(topic=topic)
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
         text = response.text.strip()
         if text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
@@ -51,11 +53,13 @@ def generate_tweet() -> str:
 
 def generate_hashtags(tweet: str) -> str:
     """Generate hashtags for the tweet."""
-    genai.configure(api_key=config.GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
     prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
         return response.text.strip()
     except Exception as e:
         print(f"Hashtag generation failed: {e}", file=sys.stderr)
@@ -77,7 +81,7 @@ def post_to_twitter(tweet: str, hashtags: str) -> bool:
     if len(full_text) > 280:
         full_text = full_text[:280]
 
-    client = tweepy.Client(
+    twitter_client = tweepy.Client(
         consumer_key=config.TWITTER_API_KEY,
         consumer_secret=config.TWITTER_API_SECRET,
         access_token=config.TWITTER_ACCESS_TOKEN,
@@ -85,7 +89,7 @@ def post_to_twitter(tweet: str, hashtags: str) -> bool:
     )
 
     try:
-        response = client.create_tweet(text=full_text)
+        response = twitter_client.create_tweet(text=full_text)
         print(f"Posted successfully! Tweet ID: {response.data['id']}")
         return True
     except Exception as e:
