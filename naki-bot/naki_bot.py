@@ -54,7 +54,7 @@ def get_gemini_client():
     return genai.Client(api_key=config.GEMINI_API_KEY)
 
 
-GEMINI_TEXT_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
+GEMINI_TEXT_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"]
 
 
 def generate_tweet(client: genai.Client) -> str:
