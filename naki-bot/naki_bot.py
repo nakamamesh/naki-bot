@@ -39,7 +39,7 @@ def generate_tweet() -> str:
     prompt = TWEET_GENERATION_PROMPT.format(topic=topic)
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash-8b",
+            model="models/gemini-1.5-flash",
             contents=prompt
         )
         text = response.text.strip()
@@ -57,7 +57,7 @@ def generate_hashtags(tweet: str) -> str:
     prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash-8b",
+            model="models/gemini-1.5-flash",
             contents=prompt
         )
         return response.text.strip()
