@@ -38,7 +38,7 @@ HASHTAG_GENERATION_PROMPT = """
 Given this tweet: "{tweet}"
 
 Generate 3-5 relevant hashtags for Twitter. Output ONLY the hashtags separated by spaces, e.g. #DePIN #MeshNetwork #NakamaMesh
-Include #NakamaMesh and #DePIN when relevant. No other text.
+Always include #NakamaMesh #Solana and #NAKI. Add #DePIN when relevant. No other text.
 """
 
 COMMENT_RESPONSE_PROMPT = """
