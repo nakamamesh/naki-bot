@@ -5,10 +5,9 @@ Uses Gemini for tweets and hashtags. Posts 3x daily.
 """
 import random
 import sys
+import requests
 
-from google import genai
 import tweepy
-
 import config
 from naki_prompts import (
     TWEET_GENERATION_PROMPT,
@@ -31,18 +30,28 @@ TOPICS = [
     "Phone-to-phone messaging",
 ]
 
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+
+
+def call_gemini(prompt: str) -> str:
+    """Call Gemini API directly via REST — bypasses SDK version issues."""
+    headers = {"Content-Type": "application/json"}
+    params = {"key": config.GEMINI_API_KEY}
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    response = requests.post(GEMINI_URL, headers=headers, params=params, json=body, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
 
 def generate_tweet() -> str:
     """Generate a tweet using Gemini."""
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
     topic = random.choice(TOPICS)
     prompt = TWEET_GENERATION_PROMPT.format(topic=topic)
     try:
-        response = client.models.generate_content(
-            model="models/gemini-1.5-flash",
-            contents=prompt
-        )
-        text = response.text.strip()
+        text = call_gemini(prompt)
         if text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
         return text[:275]
@@ -53,14 +62,9 @@ def generate_tweet() -> str:
 
 def generate_hashtags(tweet: str) -> str:
     """Generate hashtags for the tweet."""
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
     prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
     try:
-        response = client.models.generate_content(
-            model="models/gemini-1.5-flash",
-            contents=prompt
-        )
-        return response.text.strip()
+        return call_gemini(prompt)
     except Exception as e:
         print(f"Hashtag generation failed: {e}", file=sys.stderr)
         return "#NakamaMesh #DePIN #MeshNetwork #Solana #NAKI"
