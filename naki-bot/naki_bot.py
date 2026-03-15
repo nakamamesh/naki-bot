@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Naki AI Mascot Bot - Posts to Twitter/X for NakamaMesh.
-Uses Gemini for tweets and hashtags. Posts 3x daily.
+Uses Gemini REST API directly. Posts 3x daily.
+Bulletproof version - direct REST, no SDK dependency issues.
 """
 import random
 import sys
+import time
 import requests
-
 import tweepy
 import config
 from naki_prompts import (
@@ -30,43 +31,81 @@ TOPICS = [
     "Phone-to-phone messaging",
 ]
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
-
+# Try these models in order until one works
+MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
 
 def call_gemini(prompt: str) -> str:
-    """Call Gemini API directly via REST — bypasses SDK version issues."""
-    headers = {"Content-Type": "application/json"}
-    params = {"key": config.GEMINI_API_KEY}
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}]
+    """
+    Call Gemini API directly via REST using v1beta endpoint.
+    Tries multiple models with retry logic for rate limits.
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.GEMINI_API_KEY,
     }
-    response = requests.post(GEMINI_URL, headers=headers, params=params, json=body, timeout=30)
-    response.raise_for_status()
-    data = response.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 300,
+            "temperature": 0.9,
+        }
+    }
+
+    last_error = None
+    for model in MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            print(f"Trying model: {model}", file=sys.stderr)
+            response = requests.post(url, headers=headers, json=body, timeout=30)
+
+            if response.status_code == 429:
+                print(f"{model} rate limited, trying next...", file=sys.stderr)
+                time.sleep(2)
+                continue
+
+            if response.status_code == 404:
+                print(f"{model} not found, trying next...", file=sys.stderr)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            print(f"Success with model: {model}", file=sys.stderr)
+            return text
+
+        except requests.exceptions.HTTPError as e:
+            print(f"{model} HTTP error: {e}", file=sys.stderr)
+            last_error = e
+            continue
+        except Exception as e:
+            print(f"{model} error: {e}", file=sys.stderr)
+            last_error = e
+            continue
+
+    raise RuntimeError(f"All Gemini models failed. Last error: {last_error}")
 
 
 def generate_tweet() -> str:
     """Generate a tweet using Gemini."""
     topic = random.choice(TOPICS)
     prompt = TWEET_GENERATION_PROMPT.format(topic=topic)
-    try:
-        text = call_gemini(prompt)
-        if text.startswith('"') and text.endswith('"'):
-            text = text[1:-1]
-        return text[:275]
-    except Exception as e:
-        print(f"Gemini tweet generation failed: {e}", file=sys.stderr)
-        raise RuntimeError(f"Tweet generation failed: {e}")
+    text = call_gemini(prompt)
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    return text[:275]
 
 
 def generate_hashtags(tweet: str) -> str:
     """Generate hashtags for the tweet."""
-    prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
     try:
+        prompt = HASHTAG_GENERATION_PROMPT.format(tweet=tweet)
         return call_gemini(prompt)
     except Exception as e:
-        print(f"Hashtag generation failed: {e}", file=sys.stderr)
+        print(f"Hashtag generation failed, using defaults: {e}", file=sys.stderr)
         return "#NakamaMesh #DePIN #MeshNetwork #Solana #NAKI"
 
 
@@ -105,8 +144,12 @@ def main():
     """Generate and post one Naki tweet."""
     print("Naki is thinking... 🦎")
 
-    tweet = generate_tweet()
-    print(f"Tweet: {tweet}")
+    try:
+        tweet = generate_tweet()
+        print(f"Tweet: {tweet}")
+    except Exception as e:
+        print(f"Failed to generate tweet: {e}", file=sys.stderr)
+        sys.exit(1)
 
     hashtags = generate_hashtags(tweet)
     print(f"Hashtags: {hashtags}")
